@@ -100,8 +100,8 @@ func auditGithubRepos() ([]Leak, error) {
 		githubOrgOptions *github.RepositoryListByOrgOptions
 		githubOptions    *github.RepositoryListOptions
 		done             bool
-		leaks            []Leak
 		ownerDir         string
+		leaks            []Leak
 	)
 	ctx := context.Background()
 	githubClient := github.NewClient(githubToken())

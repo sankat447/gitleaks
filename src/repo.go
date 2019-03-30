@@ -1,6 +1,7 @@
 package gitleaks
 
 import (
+	"bytes"
 	"crypto/md5"
 	"fmt"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/flier/gohs/hyperscan"
 
 	log "github.com/sirupsen/logrus"
 	git "gopkg.in/src-d/go-git.v4"
@@ -38,6 +41,8 @@ type RepoInfo struct {
 	url        string
 	name       string
 	repository *git.Repository
+	hsDb       hyperscan.BlockDatabase
+	leaks      []Leak
 	err        error
 }
 
@@ -47,10 +52,15 @@ func newRepoInfo() (*RepoInfo, error) {
 			return nil, fmt.Errorf("skipping %s, whitelisted", opts.Repo)
 		}
 	}
+	bdb, err := newBlockDatabase()
+	if err != nil {
+		return nil, err
+	}
 	return &RepoInfo{
 		path: opts.RepoPath,
 		url:  opts.Repo,
 		name: filepath.Base(opts.Repo),
+		hsDb: bdb,
 	}, nil
 }
 
@@ -216,6 +226,9 @@ func (repoInfo *RepoInfo) audit() ([]Leak, error) {
 						log.Warnf("recovering from panic on commit %s, likely large diff causing panic", c.Hash.String())
 					}
 				}()
+
+				scratch, err := hyperscan.NewScratch(repoInfo.hsDb)
+
 				patch, err := c.Patch(parent)
 				if err != nil {
 					log.Warnf("problem generating patch for commit: %s\n", c.Hash.String())
@@ -247,7 +260,7 @@ func (repoInfo *RepoInfo) audit() ([]Leak, error) {
 					for _, chunk := range chunks {
 						if chunk.Type() == diffType.Add || chunk.Type() == diffType.Delete {
 							diff := commitInfo{
-								repoName: repoInfo.name,
+								repoInfo: repoInfo,
 								filePath: filePath,
 								content:  chunk.Content(),
 								sha:      c.Hash.String(),
@@ -256,11 +269,10 @@ func (repoInfo *RepoInfo) audit() ([]Leak, error) {
 								message:  strings.Replace(c.Message, "\n", " ", -1),
 								date:     c.Author.When,
 							}
-							chunkLeaks := inspect(diff)
-							for _, leak := range chunkLeaks {
-								mutex.Lock()
-								leaks = append(leaks, leak)
-								mutex.Unlock()
+
+							inputData := []byte(chunk.Content())
+							if err := repoInfo.hsDb.Scan(inputData, scratch, diff.onMatch, inputData); err != nil {
+								fmt.Println(err)
 							}
 						}
 					}
@@ -274,7 +286,7 @@ func (repoInfo *RepoInfo) audit() ([]Leak, error) {
 	})
 
 	commitWg.Wait()
-	return leaks, nil
+	return repoInfo.leaks, nil
 }
 
 func (repoInfo *RepoInfo) auditSingleCommit(c *object.Commit) []Leak {
@@ -299,7 +311,7 @@ func (repoInfo *RepoInfo) auditSingleCommit(c *object.Commit) []Leak {
 			return nil
 		}
 		diff := commitInfo{
-			repoName: repoInfo.name,
+			repoInfo: repoInfo,
 			filePath: f.Name,
 			content:  content,
 			sha:      c.Hash.String(),
@@ -315,4 +327,63 @@ func (repoInfo *RepoInfo) auditSingleCommit(c *object.Commit) []Leak {
 		return nil
 	})
 	return leaks
+}
+
+func (commit commitInfo) onMatch(id uint, from, to uint64, flags uint, context interface{}) error {
+	var (
+		line     string
+		skipLine bool
+	)
+	inputData := context.([]byte)
+	end := int(to) + bytes.IndexByte(inputData[to:], '\n')
+	if end == -1 {
+		end = len(inputData)
+	}
+	i := to
+
+	for {
+		i = i - 1
+		if inputData[i] == '\n' || i == 0 {
+			line = string(inputData[i+1 : end])
+			break
+		}
+	}
+
+	// check if whitelist
+	if skipLine = isLineWhitelisted(line); skipLine {
+		return nil
+	}
+
+	// find out which regex we found
+	for _, re := range config.Regexes {
+		match := re.regex.FindString(line)
+		if match == "" {
+			continue
+		}
+		mutex.Lock()
+		commit.repoInfo.leaks = addLeak(commit.repoInfo.leaks, line, match, re.description, commit)
+		mutex.Unlock()
+	}
+
+	if !skipLine && (opts.Entropy > 0 || len(config.Entropy.entropyRanges) != 0) {
+		words := strings.Fields(line)
+		for _, word := range words {
+			entropy := getShannonEntropy(word)
+			// Only check entropyRegexes and whiteListRegexes once per line, and only if an entropy leak type
+			// was found above, since regex checks are expensive.
+			if !entropyIsHighEnough(entropy) {
+				continue
+			}
+			// If either the line is whitelisted or the line fails the noiseReduction check (when enabled),
+			// then we can skip checking the rest of the line for high entropy words.
+			if skipLine = !highEntropyLineIsALeak(line) || isLineWhitelisted(line); skipLine {
+				break
+			}
+			mutex.Lock()
+			commit.repoInfo.leaks = addLeak(commit.repoInfo.leaks, line, word, fmt.Sprintf("Entropy: %.2f", entropy), commit)
+			mutex.Unlock()
+		}
+	}
+
+	return nil
 }

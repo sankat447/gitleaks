@@ -15,10 +15,11 @@ import (
 )
 
 type commitInfo struct {
+	repoInfo *RepoInfo
+	repoName string
 	content  string
 	commit   *object.Commit
 	filePath string
-	repoName string
 	sha      string
 	message  string
 	author   string
@@ -148,7 +149,7 @@ func addLeak(leaks []Leak, line string, offender string, leakType string, commit
 		Author:   commit.author,
 		Email:    commit.email,
 		File:     commit.filePath,
-		Repo:     commit.repoName,
+		Repo:     commit.repoInfo.name,
 		Message:  commit.message,
 		Date:     commit.date,
 	}
