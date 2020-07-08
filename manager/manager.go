@@ -47,6 +47,7 @@ type Manager struct {
 // Leak is a struct that contains information about some line of code that contains
 // sensitive information as determined by the rules set in a gitleaks config
 type Leak struct {
+	LineNumber int       `json:"lineNumber"`
 	Line       string    `json:"line"`
 	Offender   string    `json:"offender"`
 	Commit     string    `json:"commit"`

@@ -1,8 +1,11 @@
 package audit
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"math"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -132,7 +135,7 @@ func ruleContainFilePathRegex(rule config.Rule) bool {
 }
 
 func sendLeak(offender string, line string, filename string, rule config.Rule, c *object.Commit, repo *Repo) {
-	repo.Manager.SendLeaks(manager.Leak{
+	leak := manager.Leak{
 		Line:     line,
 		Offender: offender,
 		Commit:   c.Hash.String(),
@@ -144,7 +147,33 @@ func sendLeak(offender string, line string, filename string, rule config.Rule, c
 		Date:     c.Author.When,
 		Tags:     strings.Join(rule.Tags, ", "),
 		File:     filename,
-	})
+	}
+
+	if !repo.Manager.Opts.CheckUncommitted() {
+		f, err := c.File(leak.File)
+		if err != nil {
+			log.Error(err)
+		}
+		r, err := f.Reader()
+		if err != nil {
+			log.Error(err)
+		}
+		err = extractAndInjectLine(r, &leak)
+		if err != nil {
+			log.Error(err)
+		}
+	} else {
+		f, err := os.Open(leak.File)
+		if err != nil {
+			log.Error(err)
+		}
+		err = extractAndInjectLine(f, &leak)
+		if err != nil {
+			log.Error(err)
+		}
+
+	}
+	repo.Manager.SendLeaks(leak)
 }
 
 // InspectFile accepts a file content, fullpath of file, commit and repo. If the file is
@@ -473,6 +502,19 @@ func getLogOptions(repo *Repo) (*git.LogOptions, error) {
 		return &logOpts, nil
 	}
 	return &git.LogOptions{All: true}, nil
+}
+
+func extractAndInjectLine(r io.ReadCloser, leak *manager.Leak) error {
+	line := 1
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), leak.Line) {
+			leak.LineNumber = line
+			break
+		}
+		line++
+	}
+	return nil
 }
 
 // howLong accepts a time.Time object which is subtracted from time.Now() and

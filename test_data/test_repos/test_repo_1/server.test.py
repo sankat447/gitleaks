@@ -7,3 +7,5 @@ client = boto3.client(
 )
 
 # adding another line
+ aws_access_key_id='AKIAIO5FODNN7DXAMPLE'
+
