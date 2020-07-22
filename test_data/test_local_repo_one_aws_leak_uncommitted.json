@@ -1,5 +1,6 @@
 [
  {
+  "lineNumber": 9,
   "line": " aws_access_key_id='AKIAIO5FODNN7DXAMPLE'",
   "offender": "AKIAIO5FODNN7DXAMPLE",
   "commit": "0000000000000000000000000000000000000000",
@@ -10,6 +11,7 @@
   "email": "",
   "file": "server.test.py",
   "date": "1970-01-01T00:00:00Z",
-  "tags": "key, AWS"
+  "tags": "key, AWS",
+  "operation": "addition"
  }
 ]

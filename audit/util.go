@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -182,7 +181,12 @@ func sendLeak(offender string, line string, filename string, operation fdiff.Ope
 			return
 		}
 	} else {
-		f, err := os.Open(leak.File)
+		wt, err := repo.Worktree()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		f, err := wt.Filesystem.Open(leak.File)
 		if err != nil {
 			log.Error(err)
 			return
