@@ -1,5 +1,6 @@
 [
  {
+  "lineNumber": -1,
   "line": "N/A",
   "offender": "Filename/path offender: server.test.py",
   "commit": "d274003914c707212cbe84e3e466a00013ccb639",
@@ -10,9 +11,11 @@
   "email": "zricer@protonmail.com",
   "file": "server.test.py",
   "date": "2019-10-24T10:03:38-04:00",
-  "tags": ""
+  "tags": "",
+  "operation": "addition"
  },
  {
+  "lineNumber": 5,
   "line": "    aws_access_key_id='AKIAIO5FODNN7EXAMPLE',",
   "offender": "AKIAIO5FODNN7EXAMPLE",
   "commit": "6557c92612d3b35979bd426d429255b3bf9fab74",
@@ -23,9 +26,11 @@
   "email": "zricer@protonmail.com",
   "file": "server.test.py",
   "date": "2019-10-24T09:29:27-04:00",
-  "tags": "key, AWS"
+  "tags": "key, AWS",
+  "operation": "addition"
  },
  {
+  "lineNumber": -1,
   "line": "N/A",
   "offender": "Filename/path offender: server.test.py",
   "commit": "6557c92612d3b35979bd426d429255b3bf9fab74",
@@ -36,6 +41,7 @@
   "email": "zricer@protonmail.com",
   "file": "server.test.py",
   "date": "2019-10-24T09:29:27-04:00",
-  "tags": ""
+  "tags": "",
+  "operation": "addition"
  }
 ]

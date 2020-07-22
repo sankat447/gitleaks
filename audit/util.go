@@ -36,8 +36,8 @@ func inspectPatch(patch *object.Patch, c *object.Commit, repo *Repo) {
 			continue
 		}
 		for _, chunk := range f.Chunks() {
-			if chunk.Type() == fdiff.Add || (repo.Manager.Opts.Deletion && chunk.Type() == fdiff.Delete){
-				InspectFile(chunk.Content(), getFileFullPath(f), c, repo)
+			if chunk.Type() == fdiff.Add || (repo.Manager.Opts.Deletion && chunk.Type() == fdiff.Delete) {
+				InspectFile(chunk.Content(), getFileFullPath(f), chunk.Type(), c, repo)
 			}
 		}
 	}
@@ -134,45 +134,66 @@ func ruleContainFilePathRegex(rule config.Rule) bool {
 	return true
 }
 
-func sendLeak(offender string, line string, filename string, rule config.Rule, c *object.Commit, repo *Repo) {
+func operationToString(operation fdiff.Operation) string {
+	switch operation {
+	case fdiff.Add:
+		return "addition"
+	case fdiff.Delete:
+		return "deletion"
+	}
+	return "equal"
+}
+
+func sendLeak(offender string, line string, filename string, operation fdiff.Operation, rule config.Rule, c *object.Commit, repo *Repo) {
 	leak := manager.Leak{
-		Line:     line,
-		Offender: offender,
-		Commit:   c.Hash.String(),
-		Repo:     repo.Name,
-		Message:  c.Message,
-		Rule:     rule.Description,
-		Author:   c.Author.Name,
-		Email:    c.Author.Email,
-		Date:     c.Author.When,
-		Tags:     strings.Join(rule.Tags, ", "),
-		File:     filename,
+		Line:      line,
+		Offender:  offender,
+		Commit:    c.Hash.String(),
+		Repo:      repo.Name,
+		Message:   c.Message,
+		Rule:      rule.Description,
+		Author:    c.Author.Name,
+		Email:     c.Author.Email,
+		Date:      c.Author.When,
+		Tags:      strings.Join(rule.Tags, ", "),
+		Operation: operationToString(operation),
+		File:      filename,
+	}
+
+	if operation == fdiff.Delete {
+		repo.Manager.SendLeaks(leak)
+		return
 	}
 
 	if !repo.Manager.Opts.CheckUncommitted() {
 		f, err := c.File(leak.File)
 		if err != nil {
-			log.Error(err)
+			log.Debug(err)
+			return
 		}
 		r, err := f.Reader()
 		if err != nil {
-			log.Error(err)
+			log.Debug(err)
+			return
 		}
 		err = extractAndInjectLine(r, &leak)
 		if err != nil {
-			log.Error(err)
+			log.Debug(err)
+			return
 		}
 	} else {
 		f, err := os.Open(leak.File)
 		if err != nil {
 			log.Error(err)
+			return
 		}
 		err = extractAndInjectLine(f, &leak)
 		if err != nil {
 			log.Error(err)
+			return
 		}
-
 	}
+
 	repo.Manager.SendLeaks(leak)
 }
 
@@ -180,7 +201,7 @@ func sendLeak(offender string, line string, filename string, rule config.Rule, c
 // binary OR if a file is matched on whitelisted files set in the configuration, then gitleaks
 // will skip auditing that file. It will check first if rules apply to this file comparing filename
 // and path to their respective rule regexes and inspect file content with inspectFileContents after.
-func InspectFile(content string, fullpath string, c *object.Commit, repo *Repo) {
+func InspectFile(content string, fullpath string, operation fdiff.Operation, c *object.Commit, repo *Repo) {
 
 	filename := getFileName(fullpath)
 	path := getFilePath(fullpath)
@@ -225,13 +246,12 @@ func InspectFile(content string, fullpath string, c *object.Commit, repo *Repo) 
 
 		// If it doesnt contain a content regex then it is a filename regex match
 		if !ruleContainRegex(rule) {
-			sendLeak("Filename/path offender: "+filename, "N/A", fullpath, rule, c, repo)
+			sendLeak("Filename/path offender: "+filename, "N/A", fullpath, operation, rule, c, repo)
 		} else {
 			//otherwise we check if it matches content regex
-			inspectFileContents(content, fullpath, rule, c, repo)
+			inspectFileContents(content, fullpath, operation, rule, c, repo)
 		}
 
-		//	TODO should return filenameRegex if only file rule
 		repo.Manager.RecordTime(manager.RegexTime{
 			Time:  howLong(start),
 			Regex: rule.Regex.String(),
@@ -242,7 +262,7 @@ func InspectFile(content string, fullpath string, c *object.Commit, repo *Repo) 
 // InspectString accepts a string, commit object, repo, and filename. This function iterates over
 // all the rules set by the gitleaks config. If the rule contains entropy checks then entropy will be checked first.
 // Next, if the rule contains a regular expression then that will be checked.
-func inspectFileContents(content string, path string, rule config.Rule, c *object.Commit, repo *Repo) {
+func inspectFileContents(content string, path string, operation fdiff.Operation, rule config.Rule, c *object.Commit, repo *Repo) {
 	locs := rule.Regex.FindAllIndex([]byte(content), -1)
 	if len(locs) != 0 {
 		for _, loc := range locs {
@@ -251,9 +271,10 @@ func inspectFileContents(content string, path string, rule config.Rule, c *objec
 			for start != 0 && content[start] != '\n' {
 				start = start - 1
 			}
-			if start != 0 {
-				// skip newline
-				start = start + 1
+
+			// skip newline
+			if content[start] == '\n' {
+				start += 1
 			}
 
 			for end < len(content)-1 && content[end] != '\n' {
@@ -272,7 +293,7 @@ func inspectFileContents(content string, path string, rule config.Rule, c *objec
 				continue
 			}
 
-			sendLeak(offender, line, path, rule, c, repo)
+			sendLeak(offender, line, path, operation, rule, c, repo)
 		}
 	}
 }
@@ -360,7 +381,7 @@ func inspectFilesAtCommit(c *object.Commit, repo *Repo) error {
 			return err
 		}
 
-		InspectFile(content, f.Name, c, repo)
+		InspectFile(content, f.Name, fdiff.Add, c, repo)
 
 		return nil
 	})
@@ -511,15 +532,17 @@ func getLogOptions(repo *Repo) (*git.LogOptions, error) {
 // scanned. If leak.Offender is found (it should be found), then the line number will be assigned to leak.LineNumber.
 // If the offending leak is not found then line number will be assigned -1.
 func extractAndInjectLine(r io.ReadCloser, leak *manager.Leak) error {
-	line := -1
+	line := 0
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		if strings.Contains(scanner.Text(), leak.Line) {
 			leak.LineNumber = line + 1
-			break
+			return nil
 		}
 		line++
 	}
+
+	leak.LineNumber = -1
 	return nil
 }
 

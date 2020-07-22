@@ -59,7 +59,7 @@ type Leak struct {
 	File       string    `json:"file"`
 	Date       time.Time `json:"date"`
 	Tags       string    `json:"tags"`
-	Type       string    `json:"type"`
+	Operation  string    `json:"operation"`
 	lookupHash string
 }
 
@@ -159,7 +159,7 @@ func (manager *Manager) SendLeaks(l Leak) {
 		l.Offender = l.Offender[0:maxLineLen-1] + "..."
 	}
 	h := sha1.New()
-	h.Write([]byte(l.Commit + l.Offender + l.File + l.Line))
+	h.Write([]byte(l.Commit + l.Offender + l.File + l.Line + string(l.LineNumber) + l.Operation))
 	l.lookupHash = hex.EncodeToString(h.Sum(nil))
 	if manager.Opts.Redact {
 		l.Line = strings.ReplaceAll(l.Line, l.Offender, "REDACTED")

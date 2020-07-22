@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	fdiff "github.com/go-git/go-git/v5/plumbing/format/diff"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/go-github/v31/github"
@@ -175,7 +176,7 @@ func (g *Github) AuditPR() {
 				if f.Patch == nil {
 					continue
 				}
-				audit.InspectFile(*f.Patch, *f.Filename, &commitObj, repo)
+				audit.InspectFile(*f.Patch, *f.Filename, fdiff.Equal, &commitObj, repo)
 			}
 		}
 		page = resp.NextPage

@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"github.com/go-git/go-git/v5"
+	fdiff "github.com/go-git/go-git/v5/plumbing/format/diff"
 	"io"
 	"os"
 	"path"
@@ -47,6 +48,11 @@ type Repo struct {
 	Name    string
 	Manager *manager.Manager
 }
+
+const (
+	addition = "addition"
+	deletion = "deletion"
+)
 
 // NewRepo initializes and returns a Repo struct.
 func NewRepo(m *manager.Manager) *Repo {
@@ -117,7 +123,7 @@ func (repo *Repo) auditEmpty() error {
 		if _, err := io.Copy(workTreeBuf, workTreeFile); err != nil {
 			return err
 		}
-		InspectFile(workTreeBuf.String(), workTreeFile.Name(), emptyCommit(), repo)
+		InspectFile(workTreeBuf.String(), workTreeFile.Name(), fdiff.Add, emptyCommit(), repo)
 	}
 	repo.Manager.RecordTime(manager.AuditTime(howLong(auditTimeStart)))
 	return nil
@@ -218,7 +224,7 @@ func (repo *Repo) AuditUncommitted() error {
 				}
 			}
 
-			InspectFile(diffContents, filename, c, repo)
+			InspectFile(diffContents, filename, fdiff.Add, c, repo)
 		}
 	}
 
