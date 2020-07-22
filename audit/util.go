@@ -504,12 +504,15 @@ func getLogOptions(repo *Repo) (*git.LogOptions, error) {
 	return &git.LogOptions{All: true}, nil
 }
 
+// extractAndInjectLine scans the reader for a line containing leak.Offender while keep count of the lines
+// scanned. If leak.Offender is found (it should be found), then the line number will be assigned to leak.LineNumber.
+// If the offending leak is not found then line number will be assigned -1.
 func extractAndInjectLine(r io.ReadCloser, leak *manager.Leak) error {
-	line := 1
+	line := -1
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		if strings.Contains(scanner.Text(), leak.Line) {
-			leak.LineNumber = line
+			leak.LineNumber = line + 1
 			break
 		}
 		line++
