@@ -47,19 +47,22 @@ type Repo struct {
 
 	Name    string
 	Manager *manager.Manager
+
+	LineExtractionLookup SyncMap
 }
 
-const (
-	addition = "addition"
-	deletion = "deletion"
-)
+type SyncMap struct {
+	data map[string]bool
+	sync.RWMutex
+}
 
 // NewRepo initializes and returns a Repo struct.
 func NewRepo(m *manager.Manager) *Repo {
 	return &Repo{
-		Manager: m,
-		config:  m.Config,
-		ctx:     context.Background(),
+		Manager:              m,
+		config:               m.Config,
+		ctx:                  context.Background(),
+		LineExtractionLookup: SyncMap{data: make(map[string]bool)},
 	}
 }
 

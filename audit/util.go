@@ -2,6 +2,8 @@ package audit
 
 import (
 	"bufio"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math"
@@ -159,6 +161,9 @@ func sendLeak(offender string, line string, filename string, operation fdiff.Ope
 		File:      filename,
 	}
 
+	// If the operation is delete do not attempt to find the line
+	// number of the leak as the file might not exist/the line being search for
+	// has been removed.
 	if operation == fdiff.Delete {
 		repo.Manager.SendLeaks(leak)
 		return
@@ -175,7 +180,7 @@ func sendLeak(offender string, line string, filename string, operation fdiff.Ope
 			log.Debug(err)
 			return
 		}
-		err = extractAndInjectLine(r, &leak)
+		err = extractAndInjectLine(r, &leak, repo)
 		if err != nil {
 			log.Debug(err)
 			return
@@ -191,7 +196,7 @@ func sendLeak(offender string, line string, filename string, operation fdiff.Ope
 			log.Error(err)
 			return
 		}
-		err = extractAndInjectLine(f, &leak)
+		err = extractAndInjectLine(f, &leak, repo)
 		if err != nil {
 			log.Error(err)
 			return
@@ -535,13 +540,26 @@ func getLogOptions(repo *Repo) (*git.LogOptions, error) {
 // extractAndInjectLine scans the reader for a line containing leak.Offender while keep count of the lines
 // scanned. If leak.Offender is found (it should be found), then the line number will be assigned to leak.LineNumber.
 // If the offending leak is not found then line number will be assigned -1.
-func extractAndInjectLine(r io.ReadCloser, leak *manager.Leak) error {
+func extractAndInjectLine(r io.ReadCloser, leak *manager.Leak, repo *Repo) error {
 	line := 0
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		if strings.Contains(scanner.Text(), leak.Line) {
-			leak.LineNumber = line + 1
-			return nil
+			h := sha1.New()
+			h.Write([]byte(fmt.Sprintf("%v", leak)))
+			hash := hex.EncodeToString(h.Sum(nil))
+			repo.LineExtractionLookup.Lock()
+			if _, ok := repo.LineExtractionLookup.data[hash]; !ok {
+				// we have no encountered this line before, so add the line
+				leak.LineNumber = line + 1
+				repo.LineExtractionLookup.data[hash] = true
+				repo.LineExtractionLookup.Unlock()
+				return nil
+			}
+
+			// otherwise keep looking
+			repo.LineExtractionLookup.Unlock()
+
 		}
 		line++
 	}
